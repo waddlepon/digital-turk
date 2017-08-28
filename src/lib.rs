@@ -1,3 +1,6 @@
+pub mod board;
+pub mod magic;
+
 use board::Board;
 
 pub fn run() {

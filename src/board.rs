@@ -11,9 +11,12 @@ const KNIGHT: usize = 4;
 const BISHOP: usize = 5;
 const PAWN: usize = 6;
 
+const ALL: usize = 14;
+
 const START_POSITION: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-pub struct BitBoards(pub [u64; 14]);
+//MSB is a1, LSB is h8
+pub struct BitBoards(pub [u64; 15]);
 
 impl BitBoards {
     pub fn update_all(&mut self) {
@@ -22,6 +25,7 @@ impl BitBoards {
 
         self.0[BLACK] = self.0[BLACK + KING] | self.0[BLACK + QUEEN] | self.0[BLACK + ROOK] | self.0[BLACK + KNIGHT]
             | self.0[BLACK + BISHOP] | self.0[BLACK + PAWN];
+        self.0[ALL] = self.0[WHITE] | self.0[BLACK];
     }
 
     //rank and file are 1 indexed
@@ -48,12 +52,12 @@ impl fmt::Debug for BitBoards {
 
             match i % 7 {
                 KING => write!(f, "k: ")?,
-                QUEEN => write!(f, "q: ")?,
-                ROOK => write!(f, "r: ")?, 
-                KNIGHT => write!(f, "n: ")?,
-                BISHOP => write!(f, "b: ")?,
-                PAWN => write!(f, "p: ")?,
-                _ => write!(f, ":  ")?,
+                     QUEEN => write!(f, "q: ")?,
+                     ROOK => write!(f, "r: ")?, 
+                     KNIGHT => write!(f, "n: ")?,
+                     BISHOP => write!(f, "b: ")?,
+                     PAWN => write!(f, "p: ")?,
+                     _ => write!(f, ":  ")?,
             }
 
             write!(f, "{:064b}\n", elem)?;
@@ -70,18 +74,21 @@ const WQ_CASTLE: u8 = 0b00000010;
 const BK_CASTLE: u8 = 0b00000100;
 const BQ_CASTLE: u8 = 0b00001000;
 
+//moves stored as follows file: 6 bits rank: 6 bits flags(indicate type of move): 4 bits
+type Move = u16;
+
 #[derive(Debug)]
 pub struct Board {
     bitboards: BitBoards,
     to_move: u8,
     castling: u8,
-    en_passant: u64,
+    en_passant: u8,
     half_move: u8,
     full_move: u16,
 }
 
 impl Board {
-    pub fn from_fen(fen: &str) -> Result <Board, &'static str> {
+    pub fn from_fen(fen: &str) -> Result<Board, &'static str> {
         let mut split_iter = fen.split(' ');
 
         let position_str = split_iter.next().unwrap();
@@ -91,7 +98,7 @@ impl Board {
         let half_move: u8 = split_iter.next().unwrap().parse().unwrap();
         let full_move: u16 = split_iter.next().unwrap().parse().unwrap();
 
-        let mut bitboards = BitBoards([0; 14]);
+        let mut bitboards = BitBoards([0; 15]);
 
         //position in fen string goes in order of rank 8 -> rank 1
         let mut file;
@@ -104,7 +111,7 @@ impl Board {
             for c in rank_str.chars() {
                 if c.is_digit(10) {
                     let skip: u8 = c.to_digit(10).unwrap() as u8;
-                    if skip > 8 {
+                    if skip < 8 {
                         file += skip;
                     }
                 }
@@ -143,30 +150,34 @@ impl Board {
         if castling_str.contains('k') { castling |= BK_CASTLE };
         if castling_str.contains('q') { castling |= BQ_CASTLE };
 
-        let mut en_passant: u64 = 0;
+        let mut en_passant: u8 = 0;
         if en_passant_str != "-" {
             let mut chars = en_passant_str.chars();
-            //this implementation makes me want to end myself but i dunno how to get ascii codes from chars in rust
             let file = match chars.nth(0).unwrap() {
                 'a' => 1,
-                'b' => 2,
-                'c' => 3,
-                'd' => 4,
-                'e' => 5,
-                'f' => 6,
-                'g' => 7,
-                'h' => 8,
-                _ => return Err("Invalid en passant target square"),
+                    'b' => 2,
+                    'c' => 3,
+                    'd' => 4,
+                    'e' => 5,
+                    'f' => 6,
+                    'g' => 7,
+                    'h' => 8,
+                    _ => return Err("Invalid en passant target square"),
             };
-            en_passant |= 1 << ((8 - file) + 8 * 
-                                (chars.nth(1).unwrap().to_digit(10).unwrap() - 1));
+            en_passant |= file << 3;
+            en_passant |= chars.nth(1).unwrap().to_digit(10).unwrap() as u8 + 1;
         }
 
         Ok(Board { bitboards: bitboards, to_move: to_move, castling: castling, en_passant: en_passant,
-        half_move: half_move, full_move: full_move })
+            half_move: half_move, full_move: full_move })
     }
-    
-    pub fn start_position() -> Result <Board, &'static str> {
+
+    pub fn start_position() -> Result<Board, &'static str> {
         Board::from_fen(START_POSITION)
+    }
+
+    pub fn generate_moves(&self) -> Vec<Move> {
+        let mut moves: Vec<Move> = Vec::with_capacity(100);
+        moves
     }
 }

@@ -1,6 +1,5 @@
-pub mod engine;
-pub mod board;
+extern crate digital_turk;
 
 fn main() {
-    engine::run();
+   digital_turk::run();
 }
