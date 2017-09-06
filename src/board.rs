@@ -1,5 +1,6 @@
 use std::ascii::AsciiExt;
 use std::fmt;
+use magic::MagicBoards;
 
 const WHITE: usize = 0;
 const BLACK: usize = 7;
@@ -20,11 +21,13 @@ pub struct BitBoards(pub [u64; 15]);
 
 impl BitBoards {
     pub fn update_all(&mut self) {
-        self.0[WHITE] = self.0[WHITE + KING] | self.0[WHITE + QUEEN] | self.0[WHITE + ROOK] | self.0[WHITE + KNIGHT]
-            | self.0[WHITE + BISHOP] | self.0[WHITE + PAWN];
+        self.0[WHITE] = self.0[WHITE + KING] | self.0[WHITE + QUEEN] | self.0[WHITE + ROOK] |
+            self.0[WHITE + KNIGHT] | self.0[WHITE + BISHOP] |
+            self.0[WHITE + PAWN];
 
-        self.0[BLACK] = self.0[BLACK + KING] | self.0[BLACK + QUEEN] | self.0[BLACK + ROOK] | self.0[BLACK + KNIGHT]
-            | self.0[BLACK + BISHOP] | self.0[BLACK + PAWN];
+        self.0[BLACK] = self.0[BLACK + KING] | self.0[BLACK + QUEEN] | self.0[BLACK + ROOK] |
+            self.0[BLACK + KNIGHT] | self.0[BLACK + BISHOP] |
+            self.0[BLACK + PAWN];
         self.0[ALL] = self.0[WHITE] | self.0[BLACK];
     }
 
@@ -32,8 +35,7 @@ impl BitBoards {
     pub fn set_square(&mut self, bitboard: usize, rank: u8, file: u8, value: bool) {
         if value {
             self.0[bitboard] |= 1 << ((rank - 1) * 8 + (8 - file));
-        }
-        else {
+        } else {
             self.0[bitboard] ^= 1 << ((rank - 1) * 8 + (8 - file));
         }
     }
@@ -45,19 +47,20 @@ impl fmt::Debug for BitBoards {
         for (i, elem) in self.0.iter().enumerate() {
             if i < 7 {
                 write!(f, "w")?;
-            }
-            else {
+            } else if i < 14 {
                 write!(f, "b")?;
+            } else {
+                write!(f, "a");
             }
 
             match i % 7 {
                 KING => write!(f, "k: ")?,
-                     QUEEN => write!(f, "q: ")?,
-                     ROOK => write!(f, "r: ")?, 
-                     KNIGHT => write!(f, "n: ")?,
-                     BISHOP => write!(f, "b: ")?,
-                     PAWN => write!(f, "p: ")?,
-                     _ => write!(f, ":  ")?,
+                QUEEN => write!(f, "q: ")?,
+                ROOK => write!(f, "r: ")?,
+                KNIGHT => write!(f, "n: ")?,
+                BISHOP => write!(f, "b: ")?,
+                PAWN => write!(f, "p: ")?,
+                _ => write!(f, ":  ")?,
             }
 
             write!(f, "{:064b}\n", elem)?;
@@ -77,18 +80,21 @@ const BQ_CASTLE: u8 = 0b00001000;
 //moves stored as follows file: 6 bits rank: 6 bits flags(indicate type of move): 4 bits
 type Move = u16;
 
-#[derive(Debug)]
-pub struct Board {
+pub struct Board<'a> {
     bitboards: BitBoards,
     to_move: u8,
     castling: u8,
     en_passant: u8,
     half_move: u8,
     full_move: u16,
+    magic_boards: &'a MagicBoards,
 }
 
-impl Board {
-    pub fn from_fen(fen: &str) -> Result<Board, &'static str> {
+impl<'a> Board<'a> {
+    pub fn from_fen<'b>(
+        fen: &str,
+        magic_boards: &'b MagicBoards,
+    ) -> Result<Board<'b>, &'static str> {
         let mut split_iter = fen.split(' ');
 
         let position_str = split_iter.next().unwrap();
@@ -114,22 +120,20 @@ impl Board {
                     if skip < 8 {
                         file += skip;
                     }
-                }
-                else {
+                } else {
                     let piece = match c.to_ascii_lowercase() {
                         'p' => PAWN,
-                            'n' => KNIGHT,
-                            'b' => BISHOP,
-                            'r' => ROOK,
-                            'q' => QUEEN,
-                            'k' => KING,
-                            _ => return Err("Invalid piece in position string"),
+                        'n' => KNIGHT,
+                        'b' => BISHOP,
+                        'r' => ROOK,
+                        'q' => QUEEN,
+                        'k' => KING,
+                        _ => return Err("Invalid piece in position string"),
                     };
 
                     if c.is_uppercase() {
                         bitboards.set_square(WHITE + piece, rank as u8 + 1, file + 1, true);
-                    }
-                    else {
+                    } else {
                         bitboards.set_square(BLACK + piece, rank as u8 + 1, file + 1, true);
                     }
                     file += 1;
@@ -145,39 +149,65 @@ impl Board {
         };
 
         let mut castling: u8 = 0;
-        if castling_str.contains('K') { castling |= WK_CASTLE };
-        if castling_str.contains('Q') { castling |= WQ_CASTLE };
-        if castling_str.contains('k') { castling |= BK_CASTLE };
-        if castling_str.contains('q') { castling |= BQ_CASTLE };
+        if castling_str.contains('K') {
+            castling |= WK_CASTLE
+        };
+        if castling_str.contains('Q') {
+            castling |= WQ_CASTLE
+        };
+        if castling_str.contains('k') {
+            castling |= BK_CASTLE
+        };
+        if castling_str.contains('q') {
+            castling |= BQ_CASTLE
+        };
 
         let mut en_passant: u8 = 0;
         if en_passant_str != "-" {
             let mut chars = en_passant_str.chars();
             let file = match chars.nth(0).unwrap() {
                 'a' => 1,
-                    'b' => 2,
-                    'c' => 3,
-                    'd' => 4,
-                    'e' => 5,
-                    'f' => 6,
-                    'g' => 7,
-                    'h' => 8,
-                    _ => return Err("Invalid en passant target square"),
+                'b' => 2,
+                'c' => 3,
+                'd' => 4,
+                'e' => 5,
+                'f' => 6,
+                'g' => 7,
+                'h' => 8,
+                _ => return Err("Invalid en passant target square"),
             };
             en_passant |= file << 3;
             en_passant |= chars.nth(1).unwrap().to_digit(10).unwrap() as u8 + 1;
         }
 
-        Ok(Board { bitboards: bitboards, to_move: to_move, castling: castling, en_passant: en_passant,
-            half_move: half_move, full_move: full_move })
+        Ok(Board {
+            bitboards: bitboards,
+            to_move: to_move,
+            castling: castling,
+            en_passant: en_passant,
+            half_move: half_move,
+            full_move: full_move,
+            magic_boards: magic_boards,
+        })
     }
 
-    pub fn start_position() -> Result<Board, &'static str> {
-        Board::from_fen(START_POSITION)
+    pub fn start_position(magic_boards: &MagicBoards) -> Result<Board, &'static str> {
+        Board::from_fen(START_POSITION, magic_boards)
     }
 
     pub fn generate_moves(&self) -> Vec<Move> {
         let mut moves: Vec<Move> = Vec::with_capacity(100);
         moves
+    }
+}
+
+impl<'a> fmt::Debug for Board<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}\n", self.bitboards)?;
+        write!(f, "to_move: {:?}\n", self.to_move)?;
+        write!(f, "castling: {:?}\n", self.castling)?;
+        write!(f, "en_passant: {:?}\n", self.en_passant)?;
+        write!(f, "half_moves: {:?}\n", self.half_move)?;
+        write!(f, "full_moves: {:?}", self.full_move)
     }
 }

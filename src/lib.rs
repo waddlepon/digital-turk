@@ -7,7 +7,7 @@ use board::Board;
 use magic::MagicBoards;
 
 pub fn run() {
-    let board_state = Board::start_position().unwrap();
-    println!("{:?}", board_state);
     let magic_boards = MagicBoards::gen_magics();
+    let board_state = Board::start_position(&magic_boards).unwrap();
+    println!("{:?}", board_state);
 }
