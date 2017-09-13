@@ -1,6 +1,9 @@
 use std::ascii::AsciiExt;
 use std::fmt;
 use magic::MagicBoards;
+use magic::KING_MOVES;
+use magic::KNIGHT_MOVES;
+use util::bit_indexes;
 
 const WHITE: usize = 0;
 const BLACK: usize = 7;
@@ -193,6 +196,27 @@ impl<'a> Board<'a> {
 
     pub fn start_position(magic_boards: &MagicBoards) -> Result<Board, &'static str> {
         Board::from_fen(START_POSITION, magic_boards)
+    }
+
+    pub fn king_moves(&self) -> u64 {
+        let moving = if self.to_move == 0 { WHITE } else { BLACK };
+        let not_moving = if self.to_move == 1 { WHITE } else { BLACK };
+
+        let square = self.bitboards.0[moving + KING].trailing_zeros();
+        if square == 64 {
+            panic!("No king");
+        }
+        let king_moves = KING_MOVES[square as usize];
+
+        let mut attacks: u64 = 0;
+        let occupancy: u64 = self.bitboards.0[ALL] & !(self.bitboards.0[moving + KING]);
+
+        for i in bit_indexes(self.bitboards.0[not_moving + ROOK]).iter() {
+            attacks |= self.magic_boards.magic_move_rook(*i as usize, occupancy);
+        }
+        for i in bit_indexes(self.bitboards.0[not_moving + BISHOP]).iter() {
+            attacks |= self.magic_boards.magic_move_bishop(*i as usize, occupancy);
+        }
     }
 
     pub fn generate_moves(&self) -> Vec<Move> {

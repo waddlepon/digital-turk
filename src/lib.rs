@@ -2,6 +2,7 @@ extern crate rand;
 
 pub mod board;
 pub mod magic;
+pub mod util;
 
 use board::Board;
 use magic::MagicBoards;
