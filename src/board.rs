@@ -3,6 +3,8 @@ use std::fmt;
 use magic::MagicBoards;
 use magic::KING_MOVES;
 use magic::KNIGHT_MOVES;
+use magic::WHITE_PAWN_ATTACKS;
+use magic::BLACK_PAWN_ATTACKS;
 use util::bit_indexes;
 
 const WHITE: usize = 0;
@@ -53,7 +55,7 @@ impl fmt::Debug for BitBoards {
             } else if i < 14 {
                 write!(f, "b")?;
             } else {
-                write!(f, "a");
+                write!(f, "a")?;
             }
 
             match i % 7 {
@@ -198,7 +200,7 @@ impl<'a> Board<'a> {
         Board::from_fen(START_POSITION, magic_boards)
     }
 
-    pub fn king_moves(&self) -> u64 {
+    fn king_moves(&self) -> u64 {
         let moving = if self.to_move == 0 { WHITE } else { BLACK };
         let not_moving = if self.to_move == 1 { WHITE } else { BLACK };
 
@@ -206,17 +208,69 @@ impl<'a> Board<'a> {
         if square == 64 {
             panic!("No king");
         }
-        let king_moves = KING_MOVES[square as usize];
 
-        let mut attacks: u64 = 0;
+        let mut danger: u64 = 0;
         let occupancy: u64 = self.bitboards.0[ALL] & !(self.bitboards.0[moving + KING]);
 
+        for i in bit_indexes(self.bitboards.0[not_moving + QUEEN]).iter() {
+            danger |= self.magic_boards.magic_move_rook(*i as usize, occupancy) |
+                self.magic_boards.magic_move_bishop(*i as usize, occupancy);
+        }
         for i in bit_indexes(self.bitboards.0[not_moving + ROOK]).iter() {
-            attacks |= self.magic_boards.magic_move_rook(*i as usize, occupancy);
+            danger |= self.magic_boards.magic_move_rook(*i as usize, occupancy);
         }
         for i in bit_indexes(self.bitboards.0[not_moving + BISHOP]).iter() {
-            attacks |= self.magic_boards.magic_move_bishop(*i as usize, occupancy);
+            danger |= self.magic_boards.magic_move_bishop(*i as usize, occupancy);
         }
+        for i in bit_indexes(self.bitboards.0[not_moving + KNIGHT]).iter() {
+            danger |= KNIGHT_MOVES[*i as usize];
+        }
+        for i in bit_indexes(self.bitboards.0[not_moving + PAWN]).iter() {
+            danger |= if not_moving == 0 {
+                WHITE_PAWN_ATTACKS[*i as usize]
+            } else {
+                BLACK_PAWN_ATTACKS[*i as usize]
+            };
+        }
+        let enemy_king = self.bitboards.0[not_moving + KING].trailing_zeros();
+        if enemy_king == 64 {
+            panic!("No enemy king");
+        }
+        danger |= KING_MOVES[enemy_king as usize];
+
+        let friendly_board = if moving == 0 {
+            self.bitboards.0[WHITE]
+        } else {
+            self.bitboards.0[BLACK]
+        };
+
+        KING_MOVES[square as usize] & !(danger) & !(friendly_board)
+    }
+
+    fn king_attackers(&self) -> u64 {
+        let moving = if self.to_move == 0 { WHITE } else { BLACK };
+        let not_moving = if self.to_move == 1 { WHITE } else { BLACK };
+
+        let mut attackers: u64 = 0;
+        let square = self.bitboards.0[moving + KING].trailing_zeros();
+        if square == 64 {
+            panic!("No king");
+        }
+
+        attackers |= self.magic_boards
+            .magic_move_rook(square as usize, self.bitboards.0[ALL]) &
+            (self.bitboards.0[not_moving + ROOK] | self.bitboards.0[not_moving + QUEEN]);
+        attackers |= self.magic_boards
+            .magic_move_bishop(square as usize, self.bitboards.0[ALL]) &
+            (self.bitboards.0[not_moving + BISHOP] | self.bitboards.0[not_moving + QUEEN]);
+        attackers |= KNIGHT_MOVES[square as usize] & self.bitboards.0[not_moving + KNIGHT];
+        attackers |= self.bitboards.0[not_moving + PAWN] & if moving == 0 {
+            WHITE_PAWN_ATTACKS[square as usize]
+        } else {
+            BLACK_PAWN_ATTACKS[square as usize]
+        };
+
+        attackers
     }
 
     pub fn generate_moves(&self) -> Vec<Move> {
