@@ -74,20 +74,20 @@ impl fmt::Debug for BitBoards {
     }
 }
 
-const WHITE_TO_MOVE: u8 = 0;
-const BLACK_TO_MOVE: u8 = 1;
-
 const WK_CASTLE: u8 = 0b00000001;
 const WQ_CASTLE: u8 = 0b00000010;
 const BK_CASTLE: u8 = 0b00000100;
 const BQ_CASTLE: u8 = 0b00001000;
 
-//moves stored as follows file: 6 bits rank: 6 bits flags(indicate type of move): 4 bits
+//moves stored as follows
+//from: 6 bits
+//to: 6 bits
+//flags(indicate type of move): 4 bits
 type Move = u16;
 
 pub struct Board<'a> {
     bitboards: BitBoards,
-    to_move: u8,
+    to_move: usize,
     castling: u8,
     en_passant: u8,
     half_move: u8,
@@ -148,8 +148,8 @@ impl<'a> Board<'a> {
         }
 
         let to_move = match to_move_str {
-            "w" => WHITE_TO_MOVE,
-            "b" => BLACK_TO_MOVE,
+            "w" => WHITE,
+            "b" => BLACK,
             _ => return Err("Invalid to_move string"),
         };
 
@@ -200,17 +200,29 @@ impl<'a> Board<'a> {
         Board::from_fen(START_POSITION, magic_boards)
     }
 
-    fn king_moves(&self) -> u64 {
-        let moving = if self.to_move == 0 { WHITE } else { BLACK };
-        let not_moving = if self.to_move == 1 { WHITE } else { BLACK };
+    fn encode_quiet_captures(&self, square: u8, move_board: u64) -> Vec<Move> {
+        let mut moves: Vec<Move> = Vec::new();
+        for i in bit_indexes(move_board) {
+            let mut new_move: Move = 0;
+            new_move |= (square as u16) << 12;
+            new_move |= ((i as u16) & 0x3F) << 4;
+            if ((1 << i) & self.bitboards.0[self.to_move]) > 0 {
+                new_move |= 0b0100;
+            }
+            moves.push(new_move);
+        }
+        moves
+    }
 
-        let square = self.bitboards.0[moving + KING].trailing_zeros();
+    fn king_moves(&self) -> u64 {
+        let not_moving = if self.to_move == 0 { BLACK } else { WHITE };
+        let square = self.bitboards.0[self.to_move + KING].trailing_zeros();
         if square == 64 {
             panic!("No king");
         }
 
         let mut danger: u64 = 0;
-        let occupancy: u64 = self.bitboards.0[ALL] & !(self.bitboards.0[moving + KING]);
+        let occupancy: u64 = self.bitboards.0[ALL] & !(self.bitboards.0[self.to_move + KING]);
 
         for i in bit_indexes(self.bitboards.0[not_moving + QUEEN]).iter() {
             danger |= self.magic_boards.magic_move_rook(*i as usize, occupancy) |
@@ -238,21 +250,16 @@ impl<'a> Board<'a> {
         }
         danger |= KING_MOVES[enemy_king as usize];
 
-        let friendly_board = if moving == 0 {
-            self.bitboards.0[WHITE]
-        } else {
-            self.bitboards.0[BLACK]
-        };
+        let friendly_board = self.bitboards.0[self.to_move];
 
         KING_MOVES[square as usize] & !(danger) & !(friendly_board)
     }
 
     fn king_attackers(&self) -> u64 {
-        let moving = if self.to_move == 0 { WHITE } else { BLACK };
-        let not_moving = if self.to_move == 1 { WHITE } else { BLACK };
+        let not_moving = if self.to_move == 0 { BLACK } else { WHITE };
 
         let mut attackers: u64 = 0;
-        let square = self.bitboards.0[moving + KING].trailing_zeros();
+        let square = self.bitboards.0[self.to_move + KING].trailing_zeros();
         if square == 64 {
             panic!("No king");
         }
@@ -264,7 +271,7 @@ impl<'a> Board<'a> {
             .magic_move_bishop(square as usize, self.bitboards.0[ALL]) &
             (self.bitboards.0[not_moving + BISHOP] | self.bitboards.0[not_moving + QUEEN]);
         attackers |= KNIGHT_MOVES[square as usize] & self.bitboards.0[not_moving + KNIGHT];
-        attackers |= self.bitboards.0[not_moving + PAWN] & if moving == 0 {
+        attackers |= self.bitboards.0[not_moving + PAWN] & if self.to_move == 0 {
             WHITE_PAWN_ATTACKS[square as usize]
         } else {
             BLACK_PAWN_ATTACKS[square as usize]
@@ -275,6 +282,23 @@ impl<'a> Board<'a> {
 
     pub fn generate_moves(&self) -> Vec<Move> {
         let mut moves: Vec<Move> = Vec::with_capacity(100);
+
+        let king = self.bitboards.0[self.to_move + KING].trailing_zeros();
+        if king == 64 {
+            panic!("No king");
+        }
+        let king_moves = Board::king_moves(self);
+        moves.append(&mut Board::encode_quiet_captures(self, king as u8, king_moves));
+
+        let attackers = Board::king_attackers(self);
+        let attacker_count = bit_indexes(attackers).len();
+
+        if attacker_count > 1 {
+            return moves;
+        }
+        else if attacker_count == 1{
+        }
+
         moves
     }
 }
