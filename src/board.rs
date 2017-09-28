@@ -44,6 +44,16 @@ impl BitBoards {
             self.0[bitboard] ^= 1 << ((rank - 1) * 8 + (8 - file));
         }
     }
+    
+    pub fn piece_at(&self, square: usize) -> Result<usize, &'static str> {
+        let check: u64 = 1 << square;
+        for i in 0..14 {
+            if (check & self.0[i]) > 0 {
+                return Ok(i);
+            }
+        }
+        Err("no piece at square") 
+    }
 }
 
 impl fmt::Debug for BitBoards {
@@ -206,7 +216,8 @@ impl<'a> Board<'a> {
             let mut new_move: Move = 0;
             new_move |= (square as u16) << 12;
             new_move |= ((i as u16) & 0x3F) << 4;
-            if ((1 << i) & self.bitboards.0[self.to_move]) > 0 {
+            let not_moving = if self.to_move == 0 { BLACK } else { WHITE };
+            if ((1 << i) & self.bitboards.0[not_moving]) > 0 {
                 new_move |= 0b0100;
             }
             moves.push(new_move);
@@ -255,33 +266,50 @@ impl<'a> Board<'a> {
         KING_MOVES[square as usize] & !(danger) & !(friendly_board)
     }
 
-    fn king_attackers(&self) -> u64 {
-        let not_moving = if self.to_move == 0 { BLACK } else { WHITE };
-
+    fn attackers(&self, square: usize, side: usize) -> u64 {
         let mut attackers: u64 = 0;
-        let square = self.bitboards.0[self.to_move + KING].trailing_zeros();
-        if square == 64 {
-            panic!("No king");
-        }
 
         attackers |= self.magic_boards
-            .magic_move_rook(square as usize, self.bitboards.0[ALL]) &
-            (self.bitboards.0[not_moving + ROOK] | self.bitboards.0[not_moving + QUEEN]);
+            .magic_move_rook(square, self.bitboards.0[ALL]) &
+            (self.bitboards.0[side + ROOK] | self.bitboards.0[side + QUEEN]);
         attackers |= self.magic_boards
-            .magic_move_bishop(square as usize, self.bitboards.0[ALL]) &
-            (self.bitboards.0[not_moving + BISHOP] | self.bitboards.0[not_moving + QUEEN]);
-        attackers |= KNIGHT_MOVES[square as usize] & self.bitboards.0[not_moving + KNIGHT];
-        attackers |= self.bitboards.0[not_moving + PAWN] & if self.to_move == 0 {
-            WHITE_PAWN_ATTACKS[square as usize]
+            .magic_move_bishop(square, self.bitboards.0[ALL]) &
+            (self.bitboards.0[side + BISHOP] | self.bitboards.0[side + QUEEN]);
+        attackers |= KNIGHT_MOVES[square] & self.bitboards.0[side + KNIGHT];
+        attackers |= self.bitboards.0[side + PAWN] & if side == 0 {
+            BLACK_PAWN_ATTACKS[square]
         } else {
-            BLACK_PAWN_ATTACKS[square as usize]
+            WHITE_PAWN_ATTACKS[square]
         };
 
         attackers
     }
 
+    //TODO: fix the panw issues in this function
+    //maybe flip pawn move boards?
+    fn movers(&self, square: usize, side: usize) -> u64 {
+        let mut movers: u64 = 0;
+
+        movers |= self.magic_boards
+            .magic_move_rook(square, self.bitboards.0[ALL]) &
+            (self.bitboards.0[side + ROOK] | self.bitboards.0[side + QUEEN]);
+        movers |= self.magic_boards
+            .magic_move_bishop(square, self.bitboards.0[ALL]) &
+            (self.bitboards.0[side + BISHOP] | self.bitboards.0[side + QUEEN]);
+        movers |= KNIGHT_MOVES[square] & self.bitboards.0[side + KNIGHT];
+        movers |= self.bitboards.0[side + PAWN] & if side == 0 {
+            WHITE_PAWN_MOVES[square]
+        } else {
+            BLACK_PAWN_MOVES[square]
+        };
+
+       movers 
+    }
+
     pub fn generate_moves(&self) -> Vec<Move> {
         let mut moves: Vec<Move> = Vec::with_capacity(100);
+
+        let not_moving = if self.to_move == 0 { BLACK } else { WHITE };
 
         let king = self.bitboards.0[self.to_move + KING].trailing_zeros();
         if king == 64 {
@@ -290,13 +318,32 @@ impl<'a> Board<'a> {
         let king_moves = Board::king_moves(self);
         moves.append(&mut Board::encode_quiet_captures(self, king as u8, king_moves));
 
-        let attackers = Board::king_attackers(self);
+        let attackers = Board::attackers(self, king, to_move);
         let attacker_count = bit_indexes(attackers).len();
 
         if attacker_count > 1 {
             return moves;
         }
-        else if attacker_count == 1{
+        else if attacker_count == 1 {
+            let push_mask: u64;
+            let attacker_square = bit_indexes(attackers)[0];
+            let piece_type = self.bitboards.piece_at(attacker_square).unwrap();
+            if piece_type == (not_moving + ROOK) || piece_type == (not_moving + BISHOP) || piece_type == (not_moving + QUEEN) {
+                //TODO: get line from piece to king
+            }
+            else {
+                push_mask = 0;
+            }
+
+            //TODO: fix issues with pawns
+            for i in bit_indexes(push_mask) {
+                let blockers = Board::attackers(self, i, not_moving);
+                
+                for s in bit_indexes(blockers) {
+                    moves.append(&mut Board::encode_quiet_captures(self, s, (1 << i) as u64));
+                }
+            }
+            //TODO: code for captures of checking piece
         }
 
         moves
